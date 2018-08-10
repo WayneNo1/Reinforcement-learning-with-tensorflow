@@ -30,6 +30,7 @@ class RL(object):
             )
 
     def choose_action(self, observation):
+        # Q_learning 和 Sarsa 在某个状态下选则下一个动作的标准是一样的，都是选中q值最大的动作。
         self.check_state_exist(observation)
         # action selection
         if np.random.rand() < self.epsilon:
@@ -52,6 +53,8 @@ class QLearningTable(RL):
         super(QLearningTable, self).__init__(actions, learning_rate, reward_decay, e_greedy)
 
     def learn(self, s, a, r, s_):
+        # Q_learning说到不一定做到，q表更新时，不是真正（在状态s_）采取行动a_来估计“现实奖励”，即基于max{Q(s_，:)}，
+        # 而是用状态s_下获得最大回报的动作来估计，因而很“勇敢”贪婪，对于错误, 死亡并不在乎
         self.check_state_exist(s_)
         q_predict = self.q_table.loc[s, a]
         if s_ != 'terminal':
@@ -68,6 +71,8 @@ class SarsaTable(RL):
         super(SarsaTable, self).__init__(actions, learning_rate, reward_decay, e_greedy)
 
     def learn(self, s, a, r, s_, a_):
+        # Sarsa说到做到，是实践派，q表更新时，直接（在状态s_）下采取行动a_来估计“现实奖励”，即基于Q(s_, a_)，
+        # 没有采用max，行为相对胆小保守。
         self.check_state_exist(s_)
         q_predict = self.q_table.loc[s, a]
         if s_ != 'terminal':
