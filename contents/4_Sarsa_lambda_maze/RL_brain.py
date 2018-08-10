@@ -5,6 +5,13 @@ All decisions are made in here.
 View more on my tutorial page: https://morvanzhou.github.io/tutorials/
 """
 
+# Sarsa(0)是单步更新：直到获取宝藏或者受到惩罚，它的上一步才会更新，之前所有步都是被认为是无效的（因为q表没有得到更新）
+# Sarsa(lambda)是回合更新：回合结束时一次性更新所有步的参数，每一步都跟该回合的结果关联。
+
+# lambda含义： 就是一个衰变值, 离奖励越远的步可能跟获得奖励的关联越小。
+# lambda为0时，单步更新；lambda为1时，回合更新。
+# 当 lambda 在[0 ~ 1], 取值越大, 离宝藏越近的步更新力度越大. 这样就不受限于每次只能更新最近的一步。学习更快。
+
 import numpy as np
 import pandas as pd
 
@@ -79,10 +86,10 @@ class SarsaLambdaTable(RL):
 
         # increase trace amount for visited state-action pair
 
-        # Method 1:
+        # Method 1:（在一个回合中，多次走同一步可不是好事情）
         # self.eligibility_trace.loc[s, a] += 1
 
-        # Method 2:
+        # Method 2:（更有效率）
         self.eligibility_trace.loc[s, :] *= 0
         self.eligibility_trace.loc[s, a] = 1
 
@@ -90,4 +97,6 @@ class SarsaLambdaTable(RL):
         self.q_table += self.lr * error * self.eligibility_trace
 
         # decay eligibility trace after update
+        # 为何不是先衰减Eligibility trace，再更新Q表呢？ => 
+        # 其实一样，因为每一步都在同时更新两个表，而eligbility_trace在下一回合会清0.
         self.eligibility_trace *= self.gamma*self.lambda_
