@@ -23,7 +23,7 @@ UNIT = 40   # pixels
 MAZE_H = 4  # grid height
 MAZE_W = 4  # grid width
 
-
+# 注意，这里环境返回的observation（即状态）不在是一个格子的位置，而是距离终点的步数
 class Maze(tk.Tk, object):
     def __init__(self):
         super(Maze, self).__init__()
@@ -89,6 +89,7 @@ class Maze(tk.Tk, object):
             origin[0] + 15, origin[1] + 15,
             fill='red')
         # return observation
+        # 距离终点的步数
         return (np.array(self.canvas.coords(self.rect)[:2]) - np.array(self.canvas.coords(self.oval)[:2]))/(MAZE_H*UNIT)
 
     def step(self, action):
