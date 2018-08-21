@@ -23,7 +23,7 @@ UNIT = 40   # pixels
 MAZE_H = 4  # grid height
 MAZE_W = 4  # grid width
 
-# 注意，这里环境返回的observation（即状态）不在是一个格子的位置，而是距离终点的步数
+# 注意，这里环境返回的observation（即状态）不在是一个格子的位置，而是（x轴、y轴）距离终点的步数
 class Maze(tk.Tk, object):
     def __init__(self):
         super(Maze, self).__init__()
