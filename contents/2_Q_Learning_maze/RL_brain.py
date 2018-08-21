@@ -8,7 +8,7 @@ View more on my tutorial page: https://morvanzhou.github.io/tutorials/
 import numpy as np
 import pandas as pd
 
-
+# 4 * 4 格子中，一个格子位置就是一个state，Q_table最大长度为16
 class QLearningTable:
     def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
         self.actions = actions  # a list
@@ -23,8 +23,8 @@ class QLearningTable:
         if np.random.uniform() < self.epsilon:
             # choose best action
             state_action = self.q_table.loc[observation, :]
-            state_action = state_action.reindex(np.random.permutation(state_action.index))     # some actions have same value
-            action = state_action.idxmax()
+            state_action = state_action.reindex(np.random.permutation(state_action.index))     # some actions have same q_value
+            action = state_action.idxmax() # 开始时所有q值都是0，打乱顺序后再选就不会一直选中一个
         else:
             # choose random action
             action = np.random.choice(self.actions)
@@ -49,3 +49,6 @@ class QLearningTable:
                     name=state,
                 )
             )
+
+    def print_q_table(self):
+        print(self.q_table)
