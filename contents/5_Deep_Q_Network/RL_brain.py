@@ -33,18 +33,18 @@ class DeepQNetwork:
             e_greedy_increment=None,
             output_graph=False,
     ):
-        self.n_actions = n_actions
-        self.n_features = n_features
+        self.n_actions = n_actions # 网络输出个数（每个动作对应的的q值）
+        self.n_features = n_features # 网络有2个输入特征（神经元）：x轴距离终点的步数，y轴距离终点的步数
         self.lr = learning_rate
         self.gamma = reward_decay
         self.epsilon_max = e_greedy
-        self.replace_target_iter = replace_target_iter
-        self.memory_size = memory_size
-        self.batch_size = batch_size
-        self.epsilon_increment = e_greedy_increment
-        self.epsilon = 0 if e_greedy_increment is not None else self.epsilon_max
+        self.replace_target_iter = replace_target_iter # 多少步更换 target_net 参数
+        self.memory_size = memory_size # 记忆上限
+        self.batch_size = batch_size # 每次网络参数更新从memory中用多少个记忆
+        self.epsilon_increment = e_greedy_increment # epsilon 的增量
+        self.epsilon = 0 if e_greedy_increment is not None else self.epsilon_max # 是否开启探索模式, 并逐步减少探索次数
 
-        # total learning step
+        # total learning step (用于判断是否更换 target_net 参数)
         self.learn_step_counter = 0
 
         # initialize zero memory [s, a, r, s_]
@@ -52,6 +52,8 @@ class DeepQNetwork:
 
         # consist of [target_net, evaluate_net]
         self._build_net()
+
+        # 替换 target_net 参数
         t_params = tf.get_collection('target_net_params')
         e_params = tf.get_collection('eval_net_params')
         self.replace_target_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
@@ -64,12 +66,18 @@ class DeepQNetwork:
             tf.summary.FileWriter("logs/", self.sess.graph)
 
         self.sess.run(tf.global_variables_initializer())
-        self.cost_his = []
+        self.cost_his = [] # 记录所有 cost 变化
 
+    # 打乱记忆（经历）间的相关性，可以使得神经网络更新更有效率。有两种方法：
+    # （1）从记忆库中随机抽取部分（batch）记忆出来学习。
+    # （2）Fixed Q-targets：Q现实的计算使用很久以前的网络参数，Q估计的计算使用最近的网络参数。=> 所以需要构建两个相同结构的网络，但只有一个用于学习。
     def _build_net(self):
         # ------------------ build evaluate_net ------------------
+        # -------------- 创建 eval 神经网络, 及时提升参数 --------------
+        # 拥有最新参数的 evaluate_net 用于计算“Q估计”。
         self.s = tf.placeholder(tf.float32, [None, self.n_features], name='s')  # input
-        self.q_target = tf.placeholder(tf.float32, [None, self.n_actions], name='Q_target')  # for calculating loss
+        self.q_target = tf.placeholder(tf.float32, [None, self.n_actions], name='Q_target')  # for calculating loss（第二个target_net网络的输出）
+
         with tf.variable_scope('eval_net'):
             # c_names(collections_names) are the collections to store variables
             c_names, n_l1, w_initializer, b_initializer = \
@@ -94,6 +102,9 @@ class DeepQNetwork:
             self._train_op = tf.train.RMSPropOptimizer(self.lr).minimize(self.loss)
 
         # ------------------ build target_net ------------------
+        # ---------------- 创建 target 神经网络, 提供 target Q ---------------------
+        # 拥有很久以前参数的 target_net 用于计算“Q现实”。
+        # target_net 是 eval_net 的一个历史版本, 拥有 eval_net 很久之前的一组参数,而且这组参数被固定一段时间, 然后再被 eval_net 的新参数所替换
         self.s_ = tf.placeholder(tf.float32, [None, self.n_features], name='s_')    # input
         with tf.variable_scope('target_net'):
             # c_names(collections_names) are the collections to store variables
@@ -111,13 +122,18 @@ class DeepQNetwork:
                 b2 = tf.get_variable('b2', [1, self.n_actions], initializer=b_initializer, collections=c_names)
                 self.q_next = tf.matmul(l1, w2) + b2
 
+    # 存储记忆
+    # DQN 的精髓部分之一: 记录下所有经历过的步, 这些步可以进行反复的学习, 所以是一种 off-policy 方法,
+    # 你甚至可以自己玩, 然后记录下自己玩的经历, 让这个 DQN 学习你是如何通关的.
     def store_transition(self, s, a, r, s_):
         if not hasattr(self, 'memory_counter'):
             self.memory_counter = 0
 
+        # 记录一条 [s, a, r, s_] 记录
         transition = np.hstack((s, [a, r], s_))
 
         # replace the old memory with new memory
+        # memory库是循环使用的
         index = self.memory_counter % self.memory_size
         self.memory[index, :] = transition
 
@@ -125,10 +141,12 @@ class DeepQNetwork:
 
     def choose_action(self, observation):
         # to have batch dimension when feed into tf placeholder
+        # 把长度为n的向量变成1*n矩阵
         observation = observation[np.newaxis, :]
 
         if np.random.uniform() < self.epsilon:
             # forward feed the observation and get q value for every actions
+            # 将observation输入evaluate net，得到每个动作的q值
             actions_value = self.sess.run(self.q_eval, feed_dict={self.s: observation})
             action = np.argmax(actions_value)
         else:
@@ -137,32 +155,49 @@ class DeepQNetwork:
 
     def learn(self):
         # check to replace target parameters
+        # 更新target net的网络参数(每迭代replace_target_iter步更新一次)
         if self.learn_step_counter % self.replace_target_iter == 0:
             self.sess.run(self.replace_target_op)
             print('\ntarget_params_replaced\n')
 
         # sample batch memory from all memory
+        # 从记忆库中拿出一部分（batch）记忆出来学习
         if self.memory_counter > self.memory_size:
             sample_index = np.random.choice(self.memory_size, size=self.batch_size)
         else:
             sample_index = np.random.choice(self.memory_counter, size=self.batch_size)
         batch_memory = self.memory[sample_index, :]
 
+        # 计算Q现实和Q估计，即target_net、eval_net 输出的q值：q_next、q_eval
         q_next, q_eval = self.sess.run(
             [self.q_next, self.q_eval],
+            # 一条记忆内容为[s, a, r, s_]
             feed_dict={
-                self.s_: batch_memory[:, -self.n_features:],  # fixed params
-                self.s: batch_memory[:, :self.n_features],  # newest params
+                self.s_: batch_memory[:, -self.n_features:],  # 使用固定参数的网络，根据当前状态s_，用于计算Q现实
+                self.s: batch_memory[:, :self.n_features],    # 使用最新参数的网络，根据前一个状态s，得到Q估计
             })
 
+        # 下面这几步十分重要. q_next, q_eval 包含所有 action 的值,
+        # 而我们需要的只是已经选择好的 action 的值, 其他的并不需要.
+        # 所以我们将其他的 action 值全变成 0, 将用到的 action 误差值 反向传递回去, 作为更新凭据.
+        # 这是我们最终要达到的样子, 比如 q_target - q_eval = [1, 0, 0] - [-1, 0, 0] = [2, 0, 0]
+        # q_eval = [-1, 0, 0] 表示这一个记忆中有我选用过 action 0, 而 action 0 带来的 Q(s, a0) = -1, 所以其他的 Q(s, a1) = Q(s, a2) = 0.
+        # q_target = [1, 0, 0] 表示这个记忆中的 r+gamma*maxQ(s_) = 1, 而且不管在 s_ 上我们取了哪个 action,
+        # 我们都需要对应上 q_eval 中的 action 位置, 所以就将 1 放在了 action 0 的位置.
+
+        # 下面也是为了达到上面说的目的, 不过为了更方面让程序运算, 达到目的的过程有点不同.
+        # 是将 q_eval 全部赋值给 q_target, 这时 q_target-q_eval 全为 0,
+        # 不过 我们再根据 batch_memory 当中的 action 这个 column 来给 q_target 中的对应的 memory-action 位置来修改赋值.
+        # 使新的赋值为 reward + gamma * maxQ(s_), 这样 q_target-q_eval 就可以变成我们所需的样子.
+        # 具体在下面还有一个举例说明.
         # change q_target w.r.t q_eval's action
         q_target = q_eval.copy()
 
         batch_index = np.arange(self.batch_size, dtype=np.int32)
-        eval_act_index = batch_memory[:, self.n_features].astype(int)
-        reward = batch_memory[:, self.n_features + 1]
+        eval_act_index = batch_memory[:, self.n_features].astype(int) # [s, a, r, s_] => action在第n_features个位置
+        reward = batch_memory[:, self.n_features + 1] # [s, a, r, s_] => reward在第n_features个位置
 
-        q_target[batch_index, eval_act_index] = reward + self.gamma * np.max(q_next, axis=1)
+        q_target[batch_index, eval_act_index] = reward + self.gamma * np.max(q_next, axis=1) # Q现实的计算
 
         """
         For example in this batch I have 2 samples and 3 actions:
@@ -200,6 +235,7 @@ class DeepQNetwork:
         self.epsilon = self.epsilon + self.epsilon_increment if self.epsilon < self.epsilon_max else self.epsilon_max
         self.learn_step_counter += 1
 
+    # 看看学习效果 (可选)
     def plot_cost(self):
         import matplotlib.pyplot as plt
         plt.plot(np.arange(len(self.cost_his)), self.cost_his)
